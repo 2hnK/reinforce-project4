@@ -1,0 +1,52 @@
+================================================================================
+PARALLEL EFFICIENCY EXPERIMENT REPORT
+PPO on MuJoCo HalfCheetah-v5
+================================================================================
+
+Baseline (1r×1e): 11.88s per iteration
+
+CONFIGURATION RESULTS
+--------------------------------------------------------------------------------
+Config       Total Envs   Time/Iter       Speedup    Efficiency  
+--------------------------------------------------------------------------------
+1r×1e        1            11.88           1.00       100.0      %
+1r×2e        2            7.53            1.58       78.9       %
+2r×1e        2            7.05            1.69       84.3       %
+1r×4e        4            4.89            2.43       60.7       %
+2r×2e        4            4.24            2.80       70.0       %
+4r×1e        4            4.10            2.90       72.5       %
+1r×8e        8            3.49            3.40       42.5       %
+2r×4e        8            3.16            3.76       47.0       %
+4r×2e        8            2.87            4.14       51.8       %
+8r×1e        8            2.74            4.33       54.1       %
+4r×4e        16           2.13            5.58       34.9       %
+8r×2e        16           2.03            5.84       36.5       %
+
+================================================================================
+TOP PERFORMERS
+================================================================================
+
+Best Speedup: 8r×2e
+  Speedup: 5.84×
+  Time: 2.03s
+  Efficiency: 36.5%
+
+Best Efficiency: 1r×1e
+  Efficiency: 100.0%
+  Speedup: 1.00×
+
+Fastest Time: 8r×2e
+  Time: 2.03s
+  Speedup: 5.84×
+
+================================================================================
+RECOMMENDATIONS
+================================================================================
+
+⚠️  Best speedup configuration has low efficiency (<50%)
+   Consider using 1r×1e for better resource utilization.
+
+💡 For your hardware (16 cores):
+   - Best absolute performance: 8r×2e
+   - Best resource efficiency: 1r×1e
+   - Balanced choice: Look for configs with 50%+ efficiency and 3-5× speedup
