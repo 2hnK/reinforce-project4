@@ -4,13 +4,14 @@ from ray.rllib.algorithms.algorithm import Algorithm
 
 # from_checkpoint 는 체크포인트에 저장된 config를 그대로 로드함
 ckpt_path = ""
-# algo_eval = Algorithm.from_checkpoint(ckpt_path)
+algo_eval = Algorithm.from_checkpoint(ckpt_path) # 20227128: 알고리즘 로딩 활성화
 
 # 에피소드 평가
 def compute_action(obs):
+    # 20227128: explore = 평가 시 탐험을 하지 않고 결정론적(deterministic)으로 행동
+    action = algo_eval.compute_single_action(obs, explore=False)
+    return action
     # return env.action_space.sample()
-    # TODO: 함수 작성
-    pass
 
 env = gym.make("HalfCheetah-v5")
 
@@ -35,4 +36,4 @@ print(f"[EVAL] Mean return over {NUM_EVAL_EPISODES} eps: {mean_ret:.3f} ± {std_
 
 env.close()
 
-# algo_eval.stop()
+algo_eval.stop() # 20227128: 리소스 정리

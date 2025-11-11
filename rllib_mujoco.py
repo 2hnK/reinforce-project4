@@ -11,7 +11,7 @@ config = (
         # ray/rllib/tuned_examples/ppo/benchmark_ppo_mujoco.py
         lambda_=0.95,
         lr=0.0003,
-        num_epochs=3,
+        num_epochs=15,
         train_batch_size=32 * 512,
         minibatch_size=4096,
         vf_loss_coeff=0.01,
@@ -26,7 +26,7 @@ config = (
         num_learners=0,
         num_gpus_per_learner=1
     )
-    .debugging(seed=0)
+    .debugging(seed=20227128) # 20227128: 시드 설정
     .env_runners(
         num_env_runners=1,
         num_envs_per_env_runner=1,

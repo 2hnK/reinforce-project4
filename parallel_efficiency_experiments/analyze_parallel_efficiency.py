@@ -1,19 +1,61 @@
-#!/usr/bin/env python3
 """
-병렬화 효율성 실험 결과 분석 (간소화 버전)
+20227128 김지훈
+
+병렬화 효율성 실험 결과 분석 및 시각화 스크립트
+
+목적:
+    experiment_parallel_efficiency.py로 수집한 병렬화 실험 결과를 
+    분석하고 시각화하여 최적의 병렬화 설정 도출
+
+주요 기능:
+    1. 실험 결과 로드 및 파싱
+       - JSON 형식의 실험 결과 파일 로드
+       - 각 설정별 성능 메트릭 추출
+    
+    2. 성능 분석
+       - Speedup 계산: Baseline 대비 속도 향상 배율
+       - Efficiency 계산: 이상적 속도 향상 대비 실제 효율성 (%)
+       - GPU 병목 분석: GPU 사용률 기반 병목 현상 감지
+    
+    3. 시각화 대시보드 생성 (5개 차트)
+       - Strong Scaling: 환경 수 대비 Speedup (이상적 선형 비교)
+       - Parallel Efficiency: 각 설정의 효율성 (%)
+       - Time per Iteration: 반복당 소요 시간
+       - GPU Utilization: GPU 사용률 (GPU 사용 시)
+       - VRAM Usage: GPU 메모리 사용량 (GPU 사용 시)
+    
+    4. 성능 순위 및 추천
+       - Best Speedup: 가장 빠른 설정
+       - Best Efficiency: 가장 효율적인 설정
+       - Fastest Time: 절대 시간 기준 최고 성능
+       - GPU 병목 분석: High/Low/Balanced 분류
+
+분석 메트릭:
+    - Speedup = T_baseline / T_config
+    - Efficiency = (Speedup / Ideal_Speedup) × 100%
+    - Ideal_Speedup = num_runners × num_envs_per_runner
+
+입력 파일:
+    - results/parallel_experiments_final.json (실험 결과 데이터)
+
+출력 파일:
+    - results/parallel_efficiency_dashboard.png (시각화 대시보드)
+    - results/parallel_efficiency_report.txt (텍스트 리포트)
 """
 
 import json
 import os
+import matplotlib
+matplotlib.use('Agg')  # GUI 없이 파일로만 저장
 import matplotlib.pyplot as plt
 import numpy as np
 
-def load_results(filename='results/parallel_experiments_final.json'):
+def load_results(filename='results/parallel_experiments_FIXED_final.json'):
     """실험 결과 로드"""
     import os
     if not os.path.exists(filename):
         print(f"Error: Results file '{filename}' not found!")
-        print("Please run parallel_efficiency_experiment.py first.")
+        print("Please run experiment_parallel_efficiency.py first.")
         exit(1)
     
     with open(filename, 'r') as f:
@@ -61,7 +103,14 @@ def analyze_results(data):
             'efficiency': efficiency,
         }
         
-        # GPU 메트릭 추가
+        # 리소스 사용량 추가 (CPU, GPU, RAM)
+        resource_usage = exp['summary'].get('resource_usage', {})
+        result['cpu_avg'] = resource_usage.get('cpu_avg', 0)
+        result['cpu_max'] = resource_usage.get('cpu_max', 0)
+        result['gpu_avg'] = resource_usage.get('gpu_avg', None)
+        result['gpu_max'] = resource_usage.get('gpu_max', None)
+        
+        # GPU 메트릭 추가 (이전 버전 호환)
         if exp['summary'].get('gpu'):
             gpu = exp['summary']['gpu']
             result['avg_gpu_util'] = gpu.get('avg_gpu_utilization', 0)
@@ -69,8 +118,8 @@ def analyze_results(data):
             result['avg_vram_mb'] = gpu.get('avg_vram_used_mb', 0)
             result['max_vram_mb'] = gpu.get('max_vram_used_mb', 0)
         else:
-            result['avg_gpu_util'] = None
-            result['max_gpu_util'] = None
+            result['avg_gpu_util'] = result['gpu_avg']
+            result['max_gpu_util'] = result['gpu_max']
             result['avg_vram_mb'] = None
             result['max_vram_mb'] = None
         
@@ -173,21 +222,25 @@ def plot_results(results, has_gpu):
     efficiencies = [r['efficiency'] for r in results]
     avg_times = [r['avg_time'] for r in results]
     
+    # 리소스 사용량 데이터
+    cpu_avgs = [r['cpu_avg'] for r in results]
+    cpu_maxs = [r['cpu_max'] for r in results]
+    
     # GPU 데이터
-    if has_gpu:
-        gpu_utils = [r['avg_gpu_util'] if r['avg_gpu_util'] is not None else 0 for r in results]
-        vram_usages = [r['avg_vram_mb'] if r['avg_vram_mb'] is not None else 0 for r in results]
-        has_gpu_data = any(r['avg_gpu_util'] is not None for r in results)
-    else:
-        has_gpu_data = False
+    has_gpu_data = any(r['gpu_avg'] is not None for r in results)
+    if has_gpu_data:
+        gpu_avgs = [r['gpu_avg'] if r['gpu_avg'] is not None else 0 for r in results]
+        gpu_maxs = [r['gpu_max'] if r['gpu_max'] is not None else 0 for r in results]
     
-    # 차트 개수 결정
-    num_charts = 5 if has_gpu_data else 3
-    fig_width = 24 if has_gpu_data else 18
+    # 차트 개수 결정: 6개 (Speedup, Efficiency, Time, CPU, GPU, RAM)
+    num_charts = 6
+    fig_width = 30
     
-    fig, axes = plt.subplots(1, num_charts, figsize=(fig_width, 5))
+    fig, axes = plt.subplots(2, 3, figsize=(fig_width, 10))
     fig.suptitle('Parallel Efficiency Analysis - PPO on HalfCheetah-v5', 
-                 fontsize=16, fontweight='bold')
+                 fontsize=18, fontweight='bold', y=0.995)
+    
+    axes = axes.flatten()  # 2D 배열을 1D로 변환
     
     # 1. Speedup vs Total Environments
     ax1 = axes[0]
@@ -233,38 +286,58 @@ def plot_results(results, has_gpu):
         ax3.text(bar.get_x() + bar.get_width()/2., height,
                 f'{time_val:.2f}s', ha='center', va='bottom', fontsize=8)
     
-    # GPU 차트 (있을 경우)
+    # 4. CPU Usage (Average)
+    ax4 = axes[3]
+    bars = ax4.bar(range(len(results)), cpu_avgs, color='#FF6B6B', alpha=0.7, label='Average')
+    ax4.scatter(range(len(results)), cpu_maxs, color='#C92A2A', s=100, 
+                marker='_', linewidths=3, label='Max', zorder=3)
+    ax4.set_xticks(range(len(results)))
+    ax4.set_xticklabels(configs, rotation=45, ha='right', fontsize=9)
+    ax4.set_ylabel('CPU Usage (%)', fontsize=11, fontweight='bold')
+    ax4.set_title('CPU Utilization', fontsize=12, fontweight='bold')
+    ax4.axhline(y=100, color='orange', linestyle='--', alpha=0.3, label='1 Core (100%)')
+    ax4.legend(fontsize=8)
+    ax4.grid(True, alpha=0.3, axis='y')
+    for i, (cpu_avg, cpu_max) in enumerate(zip(cpu_avgs, cpu_maxs)):
+        ax4.text(i, cpu_avg, f'{cpu_avg:.0f}%', ha='center', va='bottom', fontsize=7)
+    
+    # 5. GPU Usage (if available)
+    ax5 = axes[4]
     if has_gpu_data:
-        # 4. GPU Utilization
-        ax4 = axes[3]
-        bars = ax4.bar(range(len(results)), gpu_utils, color='#50C878', alpha=0.7)
-        ax4.set_xticks(range(len(results)))
-        ax4.set_xticklabels(configs, rotation=45, ha='right', fontsize=9)
-        ax4.set_ylabel('GPU Utilization (%)', fontsize=11, fontweight='bold')
-        ax4.set_title('GPU Utilization', fontsize=12, fontweight='bold')
-        ax4.axhline(y=80, color='red', linestyle='--', alpha=0.3, label='High (80%)')
-        ax4.axhline(y=20, color='green', linestyle='--', alpha=0.3, label='Low (20%)')
-        ax4.legend(fontsize=8)
-        ax4.grid(True, alpha=0.3, axis='y')
-        for bar, util in zip(bars, gpu_utils):
-            if util > 0:
-                height = bar.get_height()
-                ax4.text(bar.get_x() + bar.get_width()/2., height,
-                        f'{util:.1f}%', ha='center', va='bottom', fontsize=8)
-        
-        # 5. VRAM Usage
-        ax5 = axes[4]
-        bars = ax5.bar(range(len(results)), vram_usages, color='#4A90E2', alpha=0.7)
+        bars = ax5.bar(range(len(results)), gpu_avgs, color='#50C878', alpha=0.7, label='Average')
+        ax5.scatter(range(len(results)), gpu_maxs, color='#2F855A', s=100,
+                    marker='_', linewidths=3, label='Max', zorder=3)
         ax5.set_xticks(range(len(results)))
         ax5.set_xticklabels(configs, rotation=45, ha='right', fontsize=9)
-        ax5.set_ylabel('VRAM (MB)', fontsize=11, fontweight='bold')
-        ax5.set_title('VRAM Usage', fontsize=12, fontweight='bold')
+        ax5.set_ylabel('GPU Utilization (%)', fontsize=11, fontweight='bold')
+        ax5.set_title('GPU Utilization', fontsize=12, fontweight='bold')
+        ax5.axhline(y=80, color='red', linestyle='--', alpha=0.3, label='High (80%)')
+        ax5.axhline(y=20, color='green', linestyle='--', alpha=0.3, label='Low (20%)')
+        ax5.legend(fontsize=8)
         ax5.grid(True, alpha=0.3, axis='y')
-        for bar, vram in zip(bars, vram_usages):
-            if vram > 0:
-                height = bar.get_height()
-                ax5.text(bar.get_x() + bar.get_width()/2., height,
-                        f'{vram:.0f}', ha='center', va='bottom', fontsize=8)
+        for i, (gpu_avg, gpu_max) in enumerate(zip(gpu_avgs, gpu_maxs)):
+            if gpu_avg > 0:
+                ax5.text(i, gpu_avg, f'{gpu_avg:.1f}%', ha='center', va='bottom', fontsize=7)
+    else:
+        ax5.text(0.5, 0.5, 'No GPU Data Available', ha='center', va='center',
+                transform=ax5.transAxes, fontsize=14, color='gray')
+        ax5.set_xticks([])
+        ax5.set_yticks([])
+        ax5.set_title('GPU Utilization', fontsize=12, fontweight='bold')
+    
+    # 6. SPS (Steps Per Second)
+    ax6 = axes[5]
+    sps_values = [speedup * (16384 / 11.69) for speedup in speedups]  # 대략적인 SPS 계산
+    bars = ax6.bar(range(len(results)), sps_values, color='#4ECDC4', alpha=0.7)
+    ax6.set_xticks(range(len(results)))
+    ax6.set_xticklabels(configs, rotation=45, ha='right', fontsize=9)
+    ax6.set_ylabel('Steps Per Second', fontsize=11, fontweight='bold')
+    ax6.set_title('Throughput (SPS)', fontsize=12, fontweight='bold')
+    ax6.grid(True, alpha=0.3, axis='y')
+    for bar, sps in zip(bars, sps_values):
+        height = bar.get_height()
+        ax6.text(bar.get_x() + bar.get_width()/2., height,
+                f'{sps:.0f}', ha='center', va='bottom', fontsize=7)
     
     plt.tight_layout()
     
@@ -349,19 +422,16 @@ def main():
     print(f"\nLoaded {len(data['experiments'])} experiments")
     
     # 분석
-    results, has_gpu = analyze_results(data)
+    results, baseline_time, has_gpu = analyze_results(data)
     
     if results:
         # 출력
-        print_analysis(results, has_gpu)
+        print_analysis(results, baseline_time, has_gpu)
         
         # 시각화
         plot_results(results, has_gpu)
         
-        # 리포트 작성 (baseline time 계산)
-        baseline_exp = next((exp for exp in data['experiments'] 
-                           if exp['num_rollout_workers'] == 1 and exp['num_envs_per_worker'] == 1), None)
-        baseline_time = baseline_exp['metrics']['avg_time'] if baseline_exp else results[0]['avg_time']
+        # 리포트 작성
         write_report(results, baseline_time)
         
         print("\n" + "="*80)
