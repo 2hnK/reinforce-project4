@@ -15,6 +15,12 @@ config = (
         train_batch_size=32 * 512,
         minibatch_size=4096,
         vf_loss_coeff=0.01,
+        # 20227128
+        clip_param=0.3,
+        gamma=0.95,
+        kl_target=0.05,
+        entropy_coeff=0.01,
+        
         model={
             "fcnet_hiddens": [64, 64],
             "fcnet_activation": "tanh",

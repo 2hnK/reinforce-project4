@@ -3,12 +3,13 @@ import numpy as np
 from ray.rllib.algorithms.algorithm import Algorithm
 
 # from_checkpoint 는 체크포인트에 저장된 config를 그대로 로드함
-ckpt_path = ""
+# 최신 aggressive_exploration 재학습 결과 (iters=10, 2025-11-17, repo-logged)
+ckpt_path = "/home/kimjihun/reinforce-project4/checkpoints/aggressive_exploration/checkpoint_iter10_v3"
 algo_eval = Algorithm.from_checkpoint(ckpt_path) # 20227128: 알고리즘 로딩 활성화
 
 # 에피소드 평가
 def compute_action(obs):
-    # 20227128: explore = 평가 시 탐험을 하지 않고 결정론적(deterministic)으로 행동
+    # 20227128
     action = algo_eval.compute_single_action(obs, explore=False)
     return action
     # return env.action_space.sample()

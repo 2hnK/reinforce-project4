@@ -12,9 +12,9 @@
     - CleanRL MuJoCo 벤치마크
 
 환경 설정:
-    - num_env_runners=8 (권장: 물리 코어의 50-75%)
+    - 기본 num_env_runners=10, 균형 실험은 16까지 확장
     - num_envs_per_env_runner=5 (RLlib 권장 4-8 범위)
-    - 총 40개 환경 동시 실행 (PPO 논문 32-64 envs 권장)
+    - 총 50~80개 환경 동시 실행 (PPO 논문 32-64 envs 권장 상단 대비 여유분 확보)
     - GPU 사용 (학습 가속화)
     - 근거: Schulman et al. 2017, CleanRL MuJoCo benchmark
     - 예상 SPS: 25,000-35,000
@@ -59,143 +59,155 @@ def get_baseline_config():
 
 
 def get_combination_experiments():
-    """신뢰성 있는 파라미터 조합 실험 설정
-    
-    총 7개 실험:
-    - Baseline (1개)
-    - 문헌 검증된 조합 (6개)
-    """
+    """5개 실험 환경 세트"""
     baseline = get_baseline_config()
-    experiments = []
-    
-    # ===== 0. Baseline =====
-    experiments.append({
-        'name': 'baseline',
-        'description': 'Baseline configuration (all defaults)',
-        'params': baseline.copy(),
-        'category': 'baseline',
-        'rationale': 'PPO paper + RLlib defaults'
-    })
-    
-    # ===== 1. 빠른 수렴 (Fast Convergence) =====
-    config = baseline.copy()
-    config.update({
-        'clip_param': 0.2,
-        'gamma': 0.99,
-        'use_kl_loss': False,
-        'entropy_coeff': 0.0,
-        'grad_clip': 1.0,
-        'vf_clip_param': 10.0
-    })
-    experiments.append({
-        'name': 'fast_convergence',
-        'description': 'Fast convergence: standard PPO-Clip without KL',
-        'params': config,
-        'category': 'speed',
-        'rationale': 'OpenAI Spinning Up + CleanRL benchmark',
-        'expected': 'Faster learning, moderate stability'
-    })
-    
-    # ===== 2. 최고 안정성 (Ultra Stable) =====
-    config = baseline.copy()
-    config.update({
-        'clip_param': 0.1,
-        'gamma': 0.99,
-        'grad_clip': 0.5,
-        'vf_clip_param': 10.0,
-        'use_kl_loss': True,
-        'kl_coeff': 0.2,
-        'kl_target': 0.01,
-        'entropy_coeff': 0.0
-    })
-    experiments.append({
-        'name': 'ultra_stable',
-        'description': 'Maximum stability: conservative clip + gradient clip + KL',
-        'params': config,
-        'category': 'stability',
-        'rationale': 'RLlib best practices + Stable-Baselines3',
-        'expected': 'Highest stability, slower convergence'
-    })
-    
-    # ===== 3. 균형 조합 (Balanced) =====
-    config = baseline.copy()
-    config.update({
-        'clip_param': 0.2,
-        'gamma': 0.99,
-        'grad_clip': 1.0,
-        'entropy_coeff': 0.01,
-        'vf_clip_param': 10.0,
-        'use_kl_loss': False
-    })
-    experiments.append({
-        'name': 'balanced',
-        'description': 'Balanced: standard PPO + minimal entropy',
-        'params': config,
-        'category': 'balanced',
-        'rationale': 'Most widely used combination',
-        'expected': 'Good balance between speed and stability'
-    })
-    
-    # ===== 4. 탐험 중심 (Exploration Focused) =====
-    config = baseline.copy()
-    config.update({
-        'clip_param': 0.2,
-        'gamma': 0.99,
-        'entropy_coeff': 0.05,
-        'grad_clip': 1.0,
-        'vf_clip_param': 10.0,
-        'use_kl_loss': False
-    })
-    experiments.append({
-        'name': 'exploration_focused',
-        'description': 'High exploration: entropy_coeff=0.05',
-        'params': config,
-        'category': 'exploration',
-        'rationale': 'Atari environments setting',
-        'expected': 'More diverse solutions, slower initial learning'
-    })
-    
-    # ===== 5. 공격적 학습 (Aggressive) =====
-    config = baseline.copy()
-    config.update({
-        'clip_param': 0.3,
-        'gamma': 0.99,
-        'grad_clip': 1.0,
-        'entropy_coeff': 0.0,
-        'vf_clip_param': 10.0,
-        'use_kl_loss': False
-    })
-    experiments.append({
-        'name': 'aggressive',
-        'description': 'Aggressive: high clip_param=0.3',
-        'params': config,
-        'category': 'speed',
-        'rationale': 'Some research papers use up to 0.3',
-        'expected': 'Very fast convergence, potential instability'
-    })
-    
-    # ===== 6. Adaptive KL 최대 활용 =====
-    config = baseline.copy()
-    config.update({
-        'clip_param': 0.2,
-        'gamma': 0.99,
-        'use_kl_loss': True,
-        'kl_coeff': 0.2,
-        'kl_target': 0.01,
-        'grad_clip': 0.5,
-        'vf_clip_param': 10.0,
-        'entropy_coeff': 0.0
-    })
-    experiments.append({
-        'name': 'adaptive_kl',
-        'description': 'Adaptive KL: PPO-Lagrange style',
-        'params': config,
-        'category': 'stability',
-        'rationale': 'PPO-Lagrange, Adaptive KL research',
-        'expected': 'Automatic constraint tuning, stable learning'
-    })
-    
-    return experiments
+
+    def with_common_overrides(**overrides):
+        cfg = baseline.copy()
+        cfg.update(overrides)
+        return cfg
+
+    return [
+        {
+            'name': 'baseline_conservative',
+            'description': 'Baseline (conservative defaults)',
+            'category': 'baseline',
+            'rationale': 'More conservative than baseline_default for variance reduction',
+            'expected': 'Similar or slightly lower reward with lower CV',
+            'params': with_common_overrides(
+                clip_param=0.12,
+                gamma=0.99,
+                kl_target=0.005,
+                kl_coeff=0.3,
+                entropy_coeff=0.0,
+                optimizer_config={'sgd_momentum': 0.0},
+                model_overrides={'action_dist_config': {'initial_log_std': -1.0}},
+            ),
+            'runner_overrides': {'num_env_runners': 16}
+        },
+        {
+            'name': 'aggressive_exploration',
+            'description': 'Aggressive exploration with scheduled entropy/clip',
+            'category': 'speed',
+            'rationale': 'Fast initial learning via high clip & entropy',
+            'expected': 'Fast early gains, late instability risk',
+            'params': with_common_overrides(
+                clip_param=0.3,
+                gamma=0.95,
+                kl_target=0.05,
+                entropy_coeff=0.01,
+            ),
+            'runner_overrides': {'num_env_runners': 16}
+        },
+        {
+            'name': 'stable_conservative',
+            'description': 'Stable conservative setting with weight decay',
+            'category': 'stability',
+            'rationale': 'Maximum stability focus',
+            'expected': 'Slowest but most stable convergence',
+            'params': with_common_overrides(
+                clip_param=0.1,
+                gamma=0.99,
+                kl_target=0.01,
+                entropy_coeff=0.0,
+                optimizer_config={'sgd_momentum': 0.99},
+                model_overrides={'action_dist_config': {'initial_log_std': -1.2}}
+            ),
+            'runner_overrides': {'num_env_runners': 16}
+        },
+        {
+            'name': 'balanced_high_momentum',
+            'description': 'Balanced config with high momentum and more workers',
+            'category': 'balanced',
+            'rationale': 'Practical balance of speed and stability',
+            'expected': 'Fast convergence while remaining stable',
+            'params': with_common_overrides(
+                clip_param=0.25,
+                gamma=0.99,
+                kl_target=0.02,
+                entropy_coeff=0.0,
+                entropy_coeff_schedule=[
+                    [0,    0.01],
+                    [200_000, 0.005],
+                    [500_000, 0.0],
+                ],
+                optimizer_config={'sgd_momentum': 0.9},
+                model_overrides={'action_dist_config': {'initial_log_std': -0.7}}
+            ),
+            'runner_overrides': {'num_env_runners': 16}
+        },
+        {
+            'name': 'kl_focused',
+            'description': 'KL-focused training with stronger penalties',
+            'category': 'stability',
+            'rationale': 'Tight KL and VF regularisation',
+            'expected': 'Most accurate value estimates',
+            'params': with_common_overrides(
+                clip_param=0.25,
+                gamma=0.99,
+                kl_target=0.01,
+                kl_coeff=0.2,
+                entropy_coeff=0.003,
+                optimizer_config={'sgd_momentum': 0.9},
+                vf_loss_coeff=0.5,
+                model_overrides={'action_dist_config': {'initial_log_std': -0.8}}
+            ),
+            'runner_overrides': {'num_env_runners': 16}
+        },
+        {
+            'name': 'performance_tuned_v1',
+            'description': 'PPO config tuned for HalfCheetah performance',
+            'category': 'performance',
+            'rationale': 'Based on PPO paper, CleanRL, SB3 MuJoCo defaults',
+            'expected': 'Higher final return than baseline_default',
+            'params': with_common_overrides(
+                clip_param=0.27,
+                gamma=0.99,
+                entropy_coeff=0.0,
+                entropy_coeff_schedule=[
+                    [0,      0.02],
+                    [200_000, 0.01],
+                    [500_000, 0.0],
+                ],
+                use_kl_loss=True,
+                kl_target=0.02,
+                kl_coeff=0.15,
+                optimizer_config={'sgd_momentum': 0.9},
+                model_overrides={'action_dist_config': {'initial_log_std': -0.7}},
+            ),
+            'runner_overrides': {'num_env_runners': 16}
+        },
+    ]
+
+
+DEFAULT_RUNNER_CONFIG = {
+    'num_env_runners': 16,
+    'num_envs_per_env_runner': 5,
+    'num_cpus_per_env_runner': 1,
+}
+
+
+def _scheduled_value(schedule, current_step):
+    if not schedule:
+        return None
+    value = schedule[0][1]
+    for step, val in schedule:
+        if current_step >= step:
+            value = val
+        else:
+            break
+    return value
+
+
+def _apply_clip_param(algo, new_value):
+    if new_value is None:
+        return
+    algo.config['clip_param'] = new_value
+
+    def _set(policy, *_):
+        policy.config['clip_param'] = new_value
+
+    algo.workers.foreach_policy(_set)
 
 
 def print_system_info():
@@ -248,19 +260,20 @@ def print_system_info():
         print(f"  CUDA 사용 가능: PyTorch 미설치")
     
     # 병렬화 설정
-    print(f"\n[병렬화 설정]")
-    print(f"  num_env_runners: 8")
-    print(f"  num_envs_per_env_runner: 5")
-    print(f"  총 환경 수: 40")
+    print(f"\n[병렬화 기본 설정]")
+    print(f"  num_env_runners: {DEFAULT_RUNNER_CONFIG['num_env_runners']}")
+    print(f"  num_envs_per_env_runner: {DEFAULT_RUNNER_CONFIG['num_envs_per_env_runner']}")
+    total_envs = DEFAULT_RUNNER_CONFIG['num_env_runners'] * DEFAULT_RUNNER_CONFIG['num_envs_per_env_runner']
+    print(f"  총 환경 수: {total_envs}")
     print(f"  num_learners: 1 (GPU 사용)")
-    print(f"  근거: CleanRL 벤치마크 + PPO 논문 (32-64 envs 권장)")
+        print(f"  근거: CleanRL 벤치마크 + PPO 논문 (32-64 envs 권장, 기본 10 runners)")
     print(f"  예상 SPS: 25,000-35,000")
     print(f"  예상 효율: 50-60%")
     
     print("="*80)
 
 
-def run_single_trial(config_dict, exp_name, trial_num, num_iterations=10, save_checkpoint=False):
+def run_single_trial(config_dict, exp_name, trial_num, num_iterations=10, save_checkpoint=False, runner_overrides=None):
     """단일 시행 실행
     
     Args:
@@ -270,39 +283,58 @@ def run_single_trial(config_dict, exp_name, trial_num, num_iterations=10, save_c
         num_iterations: 반복 횟수
         save_checkpoint: 체크포인트 저장 여부
     """
-    # PPO 알고리즘 설정
+    runner_cfg = DEFAULT_RUNNER_CONFIG.copy()
+    if runner_overrides:
+        runner_cfg.update(runner_overrides)
+
+    clip_schedule = config_dict.get('clip_param_schedule')
+    initial_clip = _scheduled_value(clip_schedule, 0) or config_dict['clip_param']
+
+    model_config = {
+        "fcnet_hiddens": config_dict['fcnet_hiddens'],
+        "fcnet_activation": config_dict['fcnet_activation'],
+        "vf_share_layers": config_dict['vf_share_layers'],
+    }
+    if config_dict.get('model_overrides'):
+        model_config.update(config_dict['model_overrides'])
+
+    optimizer_config = config_dict.get('optimizer_config')
+
+    training_kwargs = dict(
+        lambda_=config_dict['lambda_'],
+        lr=config_dict['lr'],
+        num_epochs=config_dict['num_epochs'],
+        train_batch_size=config_dict['train_batch_size'],
+        minibatch_size=config_dict['minibatch_size'],
+        vf_loss_coeff=config_dict['vf_loss_coeff'],
+        clip_param=initial_clip,
+        vf_clip_param=config_dict['vf_clip_param'],
+        entropy_coeff=config_dict['entropy_coeff'],
+        use_kl_loss=config_dict['use_kl_loss'],
+        kl_coeff=config_dict['kl_coeff'],
+        kl_target=config_dict['kl_target'],
+        grad_clip=config_dict['grad_clip'],
+        gamma=config_dict['gamma'],
+        use_gae=config_dict['use_gae'],
+        use_critic=config_dict['use_critic'],
+        model=model_config,
+    )
+
+    if config_dict.get('entropy_coeff_schedule'):
+        training_kwargs['entropy_coeff_schedule'] = config_dict['entropy_coeff_schedule']
+    if optimizer_config:
+        training_kwargs['optimizer_config'] = optimizer_config
+
     config = (
         PPOConfig()
         .environment("HalfCheetah-v5")
-        .training(
-            lambda_=config_dict['lambda_'],
-            lr=config_dict['lr'],
-            num_epochs=config_dict['num_epochs'],
-            train_batch_size=config_dict['train_batch_size'],
-            minibatch_size=config_dict['minibatch_size'],
-            vf_loss_coeff=config_dict['vf_loss_coeff'],
-            clip_param=config_dict['clip_param'],
-            vf_clip_param=config_dict['vf_clip_param'],
-            entropy_coeff=config_dict['entropy_coeff'],
-            use_kl_loss=config_dict['use_kl_loss'],
-            kl_coeff=config_dict['kl_coeff'],
-            kl_target=config_dict['kl_target'],
-            grad_clip=config_dict['grad_clip'],
-            gamma=config_dict['gamma'],
-            use_gae=config_dict['use_gae'],
-            use_critic=config_dict['use_critic'],
-            model={
-                "fcnet_hiddens": config_dict['fcnet_hiddens'],
-                "fcnet_activation": config_dict['fcnet_activation'],
-                "vf_share_layers": config_dict['vf_share_layers'],
-            },
-        )
+        .training(**training_kwargs)
         .learners(num_learners=1, num_gpus_per_learner=1)  # GPU 사용으로 학습 가속화
         .debugging(seed=20227128 + trial_num)
         .env_runners(
-            num_env_runners=8,           # 8개 프로세스 (권장: 물리 코어의 50-75%)
-            num_envs_per_env_runner=5,   # 러너당 5개 환경 (RLlib 권장 4-8)
-            num_cpus_per_env_runner=1,   # 러너당 1 CPU
+            num_env_runners=runner_cfg['num_env_runners'],
+            num_envs_per_env_runner=runner_cfg['num_envs_per_env_runner'],
+            num_cpus_per_env_runner=runner_cfg['num_cpus_per_env_runner'],
         )
         .evaluation(
             evaluation_num_env_runners=1,
@@ -317,9 +349,18 @@ def run_single_trial(config_dict, exp_name, trial_num, num_iterations=10, save_c
     results = []
     start_time = time.time()
     checkpoint_path = None
+
+    _apply_clip_param(algo, initial_clip)
+    total_env_steps = 0
     
     try:
         for iteration in range(num_iterations):
+            scheduled_clip = _scheduled_value(clip_schedule, total_env_steps)
+            current_clip = algo.config.get('clip_param', initial_clip)
+            if scheduled_clip is not None and abs(scheduled_clip - current_clip) > 1e-6:
+                _apply_clip_param(algo, scheduled_clip)
+                print(f"    ↺ clip_param schedule applied: {scheduled_clip:.3f} (steps={total_env_steps})")
+            
             iter_start = time.time()
             result = algo.train()
             iter_time = time.time() - iter_start
@@ -381,6 +422,7 @@ def run_single_trial(config_dict, exp_name, trial_num, num_iterations=10, save_c
             }
             
             results.append(metrics)
+            total_env_steps = max(total_env_steps, int(result.get('num_env_steps_sampled', total_env_steps)))
             
             print(f"    Iter {iteration + 1}/{num_iterations}: "
                   f"Reward={metrics['episode_reward_mean']:.2f}, "
@@ -391,7 +433,15 @@ def run_single_trial(config_dict, exp_name, trial_num, num_iterations=10, save_c
         
         # 마지막 iteration 체크포인트 저장 (옵션)
         if save_checkpoint and iteration == num_iterations - 1:
-            checkpoint_path = algo.save()
+            raw_checkpoint = algo.save()
+            if isinstance(raw_checkpoint, (str, Path)):
+                checkpoint_path = str(raw_checkpoint)
+            elif hasattr(raw_checkpoint, "to_uri"):
+                checkpoint_path = raw_checkpoint.to_uri()
+            elif hasattr(raw_checkpoint, "path"):
+                checkpoint_path = str(raw_checkpoint.path)
+            else:
+                checkpoint_path = str(raw_checkpoint)
             print(f"    💾 체크포인트 저장: {checkpoint_path}")
     
     finally:
@@ -428,6 +478,7 @@ def run_experiment(exp_config, num_trials=5, num_iterations=10, save_checkpoints
     print(f"{'='*80}")
     
     trials_results = []
+    runner_overrides = exp_config.get('runner_overrides')
     
     for trial in range(num_trials):
         print(f"\n  Trial {trial + 1}/{num_trials}")
@@ -441,7 +492,8 @@ def run_experiment(exp_config, num_trials=5, num_iterations=10, save_checkpoints
                 exp_name,
                 trial,
                 num_iterations,
-                save_checkpoint=save_this_trial
+                save_checkpoint=save_this_trial,
+                runner_overrides=runner_overrides
             )
             trials_results.append(trial_result)
             
@@ -498,6 +550,7 @@ def run_experiment(exp_config, num_trials=5, num_iterations=10, save_checkpoints
         'rationale': exp_config['rationale'],
         'expected': exp_config.get('expected', ''),
         'params': exp_config['params'],
+        'runner_overrides': exp_config.get('runner_overrides'),
         'trials': trials_results,
         'statistics': statistics
     }
@@ -519,9 +572,10 @@ def main():
     
     print(f"\n총 {len(experiments)}개의 조합 실험 예정")
     print(f"각 실험당 5회 시행, 시행당 10회 반복")
-    print(f"병렬화: 8 runners × 5 envs = 40개 환경")
+    total_envs = DEFAULT_RUNNER_CONFIG['num_env_runners'] * DEFAULT_RUNNER_CONFIG['num_envs_per_env_runner']
+    print(f"병렬화: 기본 {DEFAULT_RUNNER_CONFIG['num_env_runners']} runners × {DEFAULT_RUNNER_CONFIG['num_envs_per_env_runner']} envs = {total_envs}개 환경 (균형 실험은 16 runners)")
     print(f"학습: num_learners=1 (GPU 사용)")
-    print(f"근거: PPO 논문 32-64 envs, CleanRL 8 workers")
+    print(f"근거: PPO 논문 32-64 envs, CleanRL 8 workers → 기본 10 runners로 확장")
     print(f"예상 소요 시간: 약 20-25분\n")
     
     # 사용자 확인
@@ -546,12 +600,13 @@ def main():
             'num_trials_per_experiment': 5,
             'num_iterations_per_trial': 10,
             'parallelization': {
-                'num_env_runners': 8,
-                'num_envs_per_env_runner': 5,
-                'total_envs': 40,
+                'default_num_env_runners': DEFAULT_RUNNER_CONFIG['num_env_runners'],
+                'num_envs_per_env_runner': DEFAULT_RUNNER_CONFIG['num_envs_per_env_runner'],
+                'total_envs_default': total_envs,
+                'special_cases': {'balanced_high_momentum': 16},
                 'num_learners': 1,
                 'num_gpus_per_learner': 1,
-                'rationale': 'PPO paper: 32-64 parallel envs, CleanRL: 8 workers'
+                'rationale': 'PPO paper: 32-64 parallel envs, CleanRL: 8 workers (default expanded to 10 runners)'
             }
         },
         'experiments': []
@@ -565,7 +620,7 @@ def main():
         print(f"{'#'*80}")
         
         # baseline 실험만 체크포인트 저장
-        save_ckpt = (exp_config['name'] == 'baseline')
+        save_ckpt = (exp_config['name'] == 'baseline_conservative')
         exp_result = run_experiment(exp_config, num_trials=5, num_iterations=10, 
                                    save_checkpoints=save_ckpt)
         
@@ -604,9 +659,9 @@ def main():
     for exp in all_results['experiments']:
         stats = exp['statistics']
         print(f"{exp['name']:<25} "
-              f"{stats['final_reward_mean']:>7.2f} ± {stats['final_reward_std']:<7.2f} "
-              f"{stats['final_reward_cv']:>8.4f} "
-              f"{stats['sps_mean']:>9.0f}")
+            f"{stats['final_reward_mean']:>7.2f} ± {stats['final_reward_std']:<7.2f} "
+            f"{stats['final_reward_cv']:>8.4f} "
+            f"{stats['sps_mean']:>9.0f}")
     
     print(f"{'='*80}")
     
