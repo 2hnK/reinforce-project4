@@ -17,8 +17,14 @@ import matplotlib.pyplot as plt
 import matplotlib
 from pathlib import Path
 
-matplotlib.rcParams['font.family'] = 'DejaVu Sans'
+# 한글 폰트 설정 (NanumGothic 없으면 DejaVu Sans로 폴백)
+try:
+    matplotlib.rcParams['font.family'] = 'NanumGothic'
+except:
+    matplotlib.rcParams['font.family'] = 'DejaVu Sans'
+    
 matplotlib.rcParams['font.size'] = 9
+matplotlib.rcParams['axes.unicode_minus'] = False  # 마이너스 기호 깨짐 방지
 
 
 def load_results(file_path):
@@ -48,11 +54,11 @@ def analyze_results(results):
     baseline_sps = baseline['statistics']['sps_mean']
     
     print("="*80)
-    print("HYPERPARAMETER EXPERIMENT ANALYSIS")
+    print("하이퍼파라미터 실험 결과 분석")
     print("="*80)
-    print(f"\nBaseline Performance:")
-    print(f"  Final Reward: {baseline_reward:.2f} ± {baseline['statistics']['final_reward_std']:.2f}")
-    print(f"  Stability (CV): {baseline_cv:.4f}")
+    print(f"\n베이스라인 성능:")
+    print(f"  최종 보상: {baseline_reward:.2f} ± {baseline['statistics']['final_reward_std']:.2f}")
+    print(f"  안정성 (CV): {baseline_cv:.4f}")
     print(f"  SPS: {baseline_sps:.2f}")
     
     # 분석 데이터 수집
@@ -88,9 +94,9 @@ def analyze_results(results):
     
     # 상위 실험 출력
     print("\n" + "="*80)
-    print("TOP 5 BY PERFORMANCE (Final Reward)")
+    print("성능 기준 상위 5개 실험 (최종 보상)")
     print("="*80)
-    print(f"{'Rank':<6} {'Experiment':<30} {'Reward':<20} {'vs Baseline':<15}")
+    print(f"{'순위':<6} {'실험명':<30} {'보상':<20} {'개선율':<15}")
     print("-"*80)
     for i, exp in enumerate(analysis_data_by_reward[:5], 1):
         reward_str = f"{exp['reward_mean']:.2f} ± {exp['reward_std']:.2f}"
@@ -98,7 +104,7 @@ def analyze_results(results):
         print(f"{i:<6} {exp['name']:<30} {reward_str:<20} {improvement:<15}")
     
     print("\n" + "="*80)
-    print("TOP 5 BY STABILITY (Lowest CV)")
+    print("안정성 기준 상위 5개 실험 (낮은 CV)")
     print("="*80)
     print(f"{'Rank':<6} {'Experiment':<30} {'CV':<15} {'vs Baseline':<15}")
     print("-"*80)
@@ -140,6 +146,9 @@ def analyze_results(results):
 def create_visualizations(results, analysis_data, baseline, output_dir):
     """시각화 생성"""
     
+    # experiments 변수 가져오기
+    experiments = results['experiments']
+    
     # 디렉토리 생성
     Path(output_dir).mkdir(parents=True, exist_ok=True)
     
@@ -166,7 +175,7 @@ def create_visualizations(results, analysis_data, baseline, output_dir):
     
     ax.set_xlabel('Final Reward Mean (Performance) →', fontsize=11, fontweight='bold')
     ax.set_ylabel('Coefficient of Variation (Instability) →', fontsize=11, fontweight='bold')
-    ax.set_title('Performance vs Stability Trade-off', fontsize=13, fontweight='bold')
+    ax.set_title('성능 vs 안정성 트레이드오프', fontsize=13, fontweight='bold')
     ax.legend()
     ax.grid(True, alpha=0.3)
     plt.colorbar(scatter, ax=ax, label='Reward Mean')
@@ -197,7 +206,7 @@ def create_visualizations(results, analysis_data, baseline, output_dir):
     ax1.set_yticks(range(len(names)))
     ax1.set_yticklabels(names, fontsize=8)
     ax1.set_xlabel('Performance Improvement vs Baseline (%)', fontsize=10, fontweight='bold')
-    ax1.set_title('Top 15: Performance Improvement', fontsize=11, fontweight='bold')
+    ax1.set_title('상위 15개: 성능 개선율', fontsize=11, fontweight='bold')
     ax1.axvline(0, color='black', linewidth=0.8)
     ax1.grid(True, alpha=0.3, axis='x')
     
@@ -216,7 +225,7 @@ def create_visualizations(results, analysis_data, baseline, output_dir):
     ax2.set_yticks(range(len(names_s)))
     ax2.set_yticklabels(names_s, fontsize=8)
     ax2.set_xlabel('Stability Improvement vs Baseline (%)', fontsize=10, fontweight='bold')
-    ax2.set_title('Top 15: Stability Improvement (Lower CV)', fontsize=11, fontweight='bold')
+    ax2.set_title('상위 15개: 안정성 개선율 (낮은 CV)', fontsize=11, fontweight='bold')
     ax2.axvline(0, color='black', linewidth=0.8)
     ax2.grid(True, alpha=0.3, axis='x')
     
@@ -225,52 +234,76 @@ def create_visualizations(results, analysis_data, baseline, output_dir):
     print(f"Saved: {output_dir}/improvements_comparison.png")
     plt.close()
     
-    # 3. 파라미터 그룹별 효과
+    # 3. 파라미터 그룹별 효과 (통합 박스플롯)
+    # 각 실험의 그룹 분류
     param_groups = {
-        'Learning Rate': ['lr_0.0001', 'baseline', 'lr_0.001'],
-        'GAE Lambda': ['lambda_0.9', 'baseline', 'lambda_0.99'],
-        'Epochs': ['epochs_10', 'baseline', 'epochs_20'],
-        'Batch Size': ['batch_8192', 'baseline', 'batch_32768'],
+        'Clipping': ['clip_conservative', 'clip_aggressive'],
+        'Entropy': ['entropy_minimal', 'entropy_medium', 'entropy_high'],
+        'Gamma': ['gamma_short', 'gamma_long'],
+        'Grad Clip': ['grad_clip_tight', 'grad_clip_loose'],
+        'VF Clip': ['vf_clip_tight', 'vf_clip_loose'],
+        'KL Loss': ['kl_disabled', 'kl_weak', 'kl_strong'],
+        'GAE': ['no_gae'],
     }
     
-    fig, axes = plt.subplots(2, 2, figsize=(14, 10))
-    axes = axes.flatten()
+    fig, ax = plt.subplots(figsize=(16, 8))
     
-    for idx, (group_name, exp_names) in enumerate(param_groups.items()):
-        ax = axes[idx]
-        
-        group_rewards = []
-        group_stds = []
-        labels = []
-        
+    # 모든 실험의 trial별 최종 보상 수집
+    all_box_data = []
+    all_labels = []
+    all_colors = []
+    
+    # 베이스라인 먼저
+    baseline_rewards = [trial['iterations'][-1]['episode_reward_mean'] 
+                       for trial in baseline['trials']]
+    all_box_data.append(baseline_rewards)
+    all_labels.append('Baseline')
+    all_colors.append('#E74C3C')
+    
+    # 각 그룹별로 처리
+    group_colors = {
+        'Clipping': '#3498DB',
+        'Entropy': '#2ECC71',
+        'Gamma': '#9B59B6',
+        'Grad Clip': '#F39C12',
+        'VF Clip': '#1ABC9C',
+        'KL Loss': '#E67E22',
+        'GAE': '#95A5A6',
+    }
+    
+    for group_name, exp_names in param_groups.items():
         for exp_name in exp_names:
-            if exp_name == 'baseline':
-                stats = baseline['statistics']
-                group_rewards.append(stats['final_reward_mean'])
-                group_stds.append(stats['final_reward_std'])
-                labels.append('baseline')
-            else:
-                exp_data = next((x for x in analysis_data if x['name'] == exp_name), None)
-                if exp_data:
-                    group_rewards.append(exp_data['reward_mean'])
-                    group_stds.append(exp_data['reward_std'])
-                    labels.append(exp_name.replace(group_name.lower().replace(' ', '_') + '_', ''))
-        
-        x = range(len(labels))
-        bars = ax.bar(x, group_rewards, yerr=group_stds, capsize=5, alpha=0.7)
-        
-        # 베이스라인 강조
-        for i, label in enumerate(labels):
-            if label == 'baseline':
-                bars[i].set_color('#E74C3C')
-            else:
-                bars[i].set_color('#3498DB')
-        
-        ax.set_xticks(x)
-        ax.set_xticklabels(labels, rotation=45, ha='right', fontsize=8)
-        ax.set_ylabel('Final Reward', fontsize=9)
-        ax.set_title(group_name, fontsize=10, fontweight='bold')
-        ax.grid(True, alpha=0.3, axis='y')
+            # 실험 데이터 찾기
+            exp = next((e for e in experiments if e['name'] == exp_name), None)
+            if exp:
+                trial_rewards = [trial['iterations'][-1]['episode_reward_mean'] 
+                               for trial in exp['trials']]
+                all_box_data.append(trial_rewards)
+                # 라벨 간소화
+                label = exp_name.replace('_', ' ').title()
+                all_labels.append(label)
+                all_colors.append(group_colors[group_name])
+    
+    # 박스플롯 생성
+    bp = ax.boxplot(all_box_data, tick_labels=all_labels, patch_artist=True,
+                    widths=0.6, showmeans=True,
+                    meanprops=dict(marker='D', markerfacecolor='red', markersize=5))
+    
+    # 색상 적용
+    for patch, color in zip(bp['boxes'], all_colors):
+        patch.set_facecolor(color)
+        patch.set_alpha(0.7)
+    
+    ax.set_xlabel('Experiment', fontsize=12, fontweight='bold')
+    ax.set_ylabel('Final Reward', fontsize=12, fontweight='bold')
+    ax.set_title('하이퍼파라미터 그룹별 성능 분포 비교', fontsize=14, fontweight='bold')
+    ax.grid(True, alpha=0.3, axis='y')
+    ax.axhline(y=baseline['statistics']['final_reward_mean'], 
+              color='red', linestyle='--', linewidth=2, alpha=0.5, label='Baseline Mean')
+    
+    # X축 라벨 회전
+    plt.xticks(rotation=45, ha='right', fontsize=9)
+    plt.legend(loc='lower right')
     
     plt.tight_layout()
     plt.savefig(f'{output_dir}/parameter_group_effects.png', dpi=150, bbox_inches='tight')
@@ -320,7 +353,7 @@ def create_visualizations(results, analysis_data, baseline, output_dir):
     
     ax.set_xlabel('Iteration', fontsize=11, fontweight='bold')
     ax.set_ylabel('Episode Reward Mean', fontsize=11, fontweight='bold')
-    ax.set_title('Learning Curves: Baseline vs Top 3 Experiments', fontsize=13, fontweight='bold')
+    ax.set_title('학습 곡선: 베이스라인 vs 상위 3개 실험', fontsize=13, fontweight='bold')
     ax.legend(fontsize=9)
     ax.grid(True, alpha=0.3)
     plt.tight_layout()

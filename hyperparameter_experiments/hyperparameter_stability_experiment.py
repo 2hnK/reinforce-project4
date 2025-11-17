@@ -98,8 +98,12 @@ def get_baseline_config():
 def get_experiment_configs():
     """실험할 하이퍼파라미터 설정들
     
-    고정 파라미터는 모든 실험에서 동일하게 유지
-    실험 가능한 파라미터만 변경하여 테스트
+    실험 설계 원칙:
+    - 단일 파라미터 변화 실험 (Single-variable experiments)
+    - 각 파라미터의 독립적 효과 측정
+    - 실증 연구에서 검증된 범위 사용
+    
+    총 18개 실험 (베이스라인 1개 + 단일 변화 17개)
     """
     baseline = get_baseline_config()
     
@@ -109,184 +113,173 @@ def get_experiment_configs():
     experiments.append({
         'name': 'baseline',
         'description': 'Baseline configuration (all defaults)',
-        'params': baseline.copy()
+        'params': baseline.copy(),
+        'group': 'baseline',
+        'rationale': 'PPO paper default values (Schulman et al., 2017)'
     })
     
-    # ===== 1. Clip Parameter 실험 =====
-    for clip in [0.1, 0.3]:
-        config = baseline.copy()
-        config['clip_param'] = clip
-        experiments.append({
-            'name': f'clip_{clip}',
-            'description': f'PPO clip parameter = {clip}',
-            'params': config
-        })
-    
-    # ===== 2. Value Function Clip Parameter 실험 =====
-    for vf_clip in [1.0, 100.0]:
-        config = baseline.copy()
-        config['vf_clip_param'] = vf_clip
-        experiments.append({
-            'name': f'vf_clip_{vf_clip}',
-            'description': f'VF clip parameter = {vf_clip}',
-            'params': config
-        })
-    
-    # VF Clip 없음
+    # ===== Group 1: Clipping 메커니즘 (2개) =====
+    # Schulman et al. (2017): ε=0.2가 최적 균형
     config = baseline.copy()
-    config['vf_clip_param'] = None
+    config['clip_param'] = 0.1
     experiments.append({
-        'name': 'vf_clip_none',
-        'description': 'VF clip parameter = None (no clipping)',
-        'params': config
+        'name': 'clip_conservative',
+        'description': 'Conservative clipping: clip_param=0.1',
+        'params': config,
+        'group': 'clipping',
+        'rationale': 'Lower clip → stable but slower convergence (PPO paper)'
     })
     
-    # ===== 3. Entropy Coefficient 실험 =====
-    for entropy in [0.001, 0.01, 0.05]:
-        config = baseline.copy()
-        config['entropy_coeff'] = entropy
-        experiments.append({
-            'name': f'entropy_{entropy}',
-            'description': f'Entropy coefficient = {entropy} (exploration)',
-            'params': config
-        })
+    config = baseline.copy()
+    config['clip_param'] = 0.3
+    experiments.append({
+        'name': 'clip_aggressive',
+        'description': 'Aggressive clipping: clip_param=0.3',
+        'params': config,
+        'group': 'clipping',
+        'rationale': 'Higher clip → faster convergence but unstable (PPO paper)'
+    })
     
-    # ===== 4. KL Divergence 실험 =====
-    # KL Loss 미사용
+    # ===== Group 2: Entropy Regularization (3개) =====
+    # HalfCheetah는 연속 제어로 자연스럽게 탐험됨
+    config = baseline.copy()
+    config['entropy_coeff'] = 0.001
+    experiments.append({
+        'name': 'entropy_minimal',
+        'description': 'Minimal entropy: entropy_coeff=0.001',
+        'params': config,
+        'group': 'entropy',
+        'rationale': 'Slight exploration for continuous control (Haarnoja et al., 2018)'
+    })
+    
+    config = baseline.copy()
+    config['entropy_coeff'] = 0.01
+    experiments.append({
+        'name': 'entropy_medium',
+        'description': 'Medium entropy: entropy_coeff=0.01',
+        'params': config,
+        'group': 'entropy',
+        'rationale': 'Balanced exploration-exploitation (RLlib best practices)'
+    })
+    
+    config = baseline.copy()
+    config['entropy_coeff'] = 0.05
+    experiments.append({
+        'name': 'entropy_high',
+        'description': 'High entropy: entropy_coeff=0.05',
+        'params': config,
+        'group': 'entropy',
+        'rationale': 'Strong exploration for diverse solutions (SAC paper)'
+    })
+    
+    # ===== Group 3: Discount Factor (2개) =====
+    # γ는 가장 중요한 하이퍼파라미터
+    config = baseline.copy()
+    config['gamma'] = 0.95
+    experiments.append({
+        'name': 'gamma_short',
+        'description': 'Short-term focus: gamma=0.95',
+        'params': config,
+        'group': 'gamma',
+        'rationale': 'Short horizon for immediate rewards (HalfCheetah distance)'
+    })
+    
+    config = baseline.copy()
+    config['gamma'] = 0.995
+    experiments.append({
+        'name': 'gamma_long',
+        'description': 'Long-term focus: gamma=0.995',
+        'params': config,
+        'group': 'gamma',
+        'rationale': 'Long horizon for strategic planning'
+    })
+    
+    # ===== Group 4: Gradient Clipping (2개) =====
+    # 안정성 확보 기법
+    config = baseline.copy()
+    config['grad_clip'] = 0.5
+    experiments.append({
+        'name': 'grad_clip_tight',
+        'description': 'Tight gradient clipping: grad_clip=0.5',
+        'params': config,
+        'group': 'gradient',
+        'rationale': 'Strong stabilization, prevent divergence (Engstrom et al., 2020)'
+    })
+    
+    config = baseline.copy()
+    config['grad_clip'] = 1.0
+    experiments.append({
+        'name': 'grad_clip_loose',
+        'description': 'Loose gradient clipping: grad_clip=1.0',
+        'params': config,
+        'group': 'gradient',
+        'rationale': 'Moderate stabilization, faster learning'
+    })
+    
+    # ===== Group 5: Value Function Clipping (2개) =====
+    config = baseline.copy()
+    config['vf_clip_param'] = 1.0
+    experiments.append({
+        'name': 'vf_clip_tight',
+        'description': 'Tight VF clipping: vf_clip_param=1.0',
+        'params': config,
+        'group': 'value_function',
+        'rationale': 'Conservative value updates for stability'
+    })
+    
+    config = baseline.copy()
+    config['vf_clip_param'] = 100.0
+    experiments.append({
+        'name': 'vf_clip_loose',
+        'description': 'Loose VF clipping: vf_clip_param=100.0',
+        'params': config,
+        'group': 'value_function',
+        'rationale': 'Free value learning for faster adaptation'
+    })
+    
+    # ===== Group 6: KL Divergence (3개) =====
+    # PPO 논문: KL penalty < clipping, 하지만 추가 안정성 제공
     config = baseline.copy()
     config['use_kl_loss'] = False
     experiments.append({
-        'name': 'no_kl_loss',
-        'description': 'KL loss disabled (only PPO clipping)',
-        'params': config
+        'name': 'kl_disabled',
+        'description': 'KL loss disabled (PPO-Clip only)',
+        'params': config,
+        'group': 'kl_divergence',
+        'rationale': 'Simpler PPO-Clip only (Schulman et al., 2017)'
     })
     
-    # 약한 KL
     config = baseline.copy()
+    config['use_kl_loss'] = True
     config['kl_coeff'] = 0.1
-    config['kl_target'] = 0.01
     experiments.append({
-        'name': 'weak_kl',
-        'description': 'Weak KL constraint (coeff=0.1)',
-        'params': config
+        'name': 'kl_weak',
+        'description': 'Weak KL constraint: kl_coeff=0.1',
+        'params': config,
+        'group': 'kl_divergence',
+        'rationale': 'Light policy constraint for additional stability'
     })
     
-    # 강한 KL
     config = baseline.copy()
+    config['use_kl_loss'] = True
     config['kl_coeff'] = 0.5
-    config['kl_target'] = 0.005
     experiments.append({
-        'name': 'strong_kl',
-        'description': 'Strong KL constraint (coeff=0.5, target=0.005)',
-        'params': config
+        'name': 'kl_strong',
+        'description': 'Strong KL constraint: kl_coeff=0.5',
+        'params': config,
+        'group': 'kl_divergence',
+        'rationale': 'Strong policy constraint for maximum stability'
     })
     
-    # ===== 5. Gradient Clipping 실험 =====
-    for grad_clip in [0.5, 1.0, 5.0]:
-        config = baseline.copy()
-        config['grad_clip'] = grad_clip
-        experiments.append({
-            'name': f'grad_clip_{grad_clip}',
-            'description': f'Gradient clipping = {grad_clip}',
-            'params': config
-        })
-    
-    # ===== 6. Gamma (Discount Factor) 실험 =====
-    for gamma in [0.95, 0.995]:
-        config = baseline.copy()
-        config['gamma'] = gamma
-        experiments.append({
-            'name': f'gamma_{gamma}',
-            'description': f'Discount factor (gamma) = {gamma}',
-            'params': config
-        })
-    
-    # ===== 7. GAE 실험 =====
+    # ===== Group 7: GAE (1개) =====
     config = baseline.copy()
     config['use_gae'] = False
     experiments.append({
         'name': 'no_gae',
         'description': 'GAE disabled (simple advantage)',
-        'params': config
-    })
-    
-    # ===== 8. 조합 실험 - 빠른 수렴 =====
-    config = baseline.copy()
-    config['clip_param'] = 0.3
-    config['entropy_coeff'] = 0.0
-    config['grad_clip'] = None
-    config['gamma'] = 0.95
-    experiments.append({
-        'name': 'fast_convergence',
-        'description': 'Fast convergence: high clip, no entropy, short-term focus',
-        'params': config
-    })
-    
-    # ===== 9. 조합 실험 - 안정적 학습 =====
-    config = baseline.copy()
-    config['clip_param'] = 0.1
-    config['vf_clip_param'] = 1.0
-    config['entropy_coeff'] = 0.001
-    config['grad_clip'] = 0.5
-    config['use_kl_loss'] = True
-    config['kl_coeff'] = 0.3
-    experiments.append({
-        'name': 'stable_learning',
-        'description': 'Stable learning: conservative clipping, KL, grad clip',
-        'params': config
-    })
-    
-    # ===== 10. 조합 실험 - 탐험 중심 =====
-    config = baseline.copy()
-    config['clip_param'] = 0.2
-    config['entropy_coeff'] = 0.05
-    config['grad_clip'] = 1.0
-    config['gamma'] = 0.995
-    experiments.append({
-        'name': 'exploration_focused',
-        'description': 'Exploration focused: high entropy, long-term focus',
-        'params': config
-    })
-    
-    # ===== 11. 조합 실험 - 균형잡힌 설정 =====
-    config = baseline.copy()
-    config['clip_param'] = 0.2
-    config['vf_clip_param'] = 10.0
-    config['entropy_coeff'] = 0.01
-    config['grad_clip'] = 1.0
-    config['use_kl_loss'] = True
-    config['kl_coeff'] = 0.2
-    experiments.append({
-        'name': 'balanced',
-        'description': 'Balanced: moderate settings for all parameters',
-        'params': config
-    })
-    
-    # ===== 12. 극단적 안정화 =====
-    config = baseline.copy()
-    config['clip_param'] = 0.1
-    config['vf_clip_param'] = 0.5
-    config['grad_clip'] = 0.5
-    config['use_kl_loss'] = True
-    config['kl_coeff'] = 0.5
-    config['kl_target'] = 0.005
-    experiments.append({
-        'name': 'ultra_stable',
-        'description': 'Ultra stable: all stabilization techniques combined',
-        'params': config
-    })
-    
-    # ===== 13. 극단적 공격 =====
-    config = baseline.copy()
-    config['clip_param'] = 0.3
-    config['vf_clip_param'] = 100.0
-    config['entropy_coeff'] = 0.0
-    config['grad_clip'] = None
-    config['use_kl_loss'] = False
-    experiments.append({
-        'name': 'ultra_aggressive',
-        'description': 'Ultra aggressive: maximize update magnitude',
-        'params': config
+        'params': config,
+        'group': 'advantage_estimation',
+        'rationale': 'Simple advantage without bias-variance tradeoff'
     })
     
     return experiments
@@ -503,6 +496,46 @@ def main():
     print("Hyperparameter Stability and Performance Comparison Experiment")
     print("Student ID: 20227128")
     print("="*70)
+    
+    # 실험 환경 정보 출력
+    print("\n" + "="*70)
+    print("실험 환경 정보")
+    print("="*70)
+    
+    # CPU 정보
+    try:
+        import subprocess
+        cpu_info = subprocess.check_output("lscpu | grep 'Model name'", shell=True).decode().strip()
+        cpu_count = subprocess.check_output("nproc", shell=True).decode().strip()
+        print(f"CPU: {cpu_info.split(':')[1].strip()}")
+        print(f"CPU Cores: {cpu_count}")
+    except:
+        import os as os_mod
+        print(f"CPU Cores: {os_mod.cpu_count()}")
+    
+    # Memory 정보
+    try:
+        mem_info = subprocess.check_output("free -h | grep Mem", shell=True).decode().split()
+        print(f"Memory: {mem_info[1]} (Available: {mem_info[6]})")
+    except:
+        print("Memory: 정보 확인 불가")
+    
+    # GPU 정보
+    try:
+        gpu_info = subprocess.check_output("nvidia-smi --query-gpu=name,memory.total --format=csv,noheader", shell=True).decode().strip()
+        print(f"GPU: {gpu_info}")
+        
+        import torch
+        print(f"PyTorch: {torch.__version__}")
+        print(f"CUDA Available: {torch.cuda.is_available()}")
+    except:
+        print("GPU: NVIDIA GPU 없음 (CPU 모드)")
+    
+    # Ray 버전
+    import ray
+    print(f"Ray: {ray.__version__}")
+    
+    print("="*70 + "\n")
     
     # 결과 디렉토리 생성
     results_dir = 'hyperparameter_experiments/results'
